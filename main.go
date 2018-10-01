@@ -1,21 +1,23 @@
 package main
 
 import (
+	"bufio"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
+	"go-zsyncmake/md4"
 	"hash"
+	"io"
 	"log"
 	"math"
 	"os"
 	"strconv"
-	"zsyncMake/md4"
 )
 
 func main() {
 	opts := Options{0, "", ""}
 
-	zsyncMake("C:\\Users\\root\\Documents\\Accelbyte\\golang\\dummy.txt", opts)
+	zsyncMake("/home/agri/Documents/zsynctest/gozsync/go/dummy.txt", opts)
 }
 
 func zsyncMake(path string, options Options) {
@@ -25,20 +27,34 @@ func zsyncMake(path string, options Options) {
 		log.Fatal(err)
 	}
 	defer zsyncFile.Close()
-	_, err = zsyncFile.WriteString(headers)
+
+	bfio := bufio.NewWriter(zsyncFile)
+	_, err = bfio.WriteString(headers)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	_, err = zsyncFile.Write(checksum)
+	_, err = bfio.Write(checksum)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = zsyncFile.Sync()
-	if err != nil {
-		log.Fatal(err)
-	}
+	bfio.Flush()
+
+	//_, err = zsyncFile.WriteString(headers)
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//
+	//_, err = zsyncFile.Write(checksum)
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//
+	//err = zsyncFile.Sync()
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
 }
 
 var ZSYNC_VERSION = "0.6.2"
@@ -81,7 +97,7 @@ func writeToFile(path string, options Options) ([]byte, string, string) {
 		"MTime: " + strconv.Itoa(int(fileInfo.ModTime().Unix())) + "\n" +
 		"Blocksize: " + strconv.Itoa(blockSize) + "\n" +
 		"Length: " + strconv.Itoa(int(fileLength)) + "\n" +
-		"Hash-Length: " + strconv.Itoa(sequenceMatches) + "," + strconv.Itoa(weakChecksumLength) + "," + strconv.Itoa(strongChecksumLength)+ "\n" +
+		"Hash-Lengths: " + strconv.Itoa(sequenceMatches) + "," + strconv.Itoa(weakChecksumLength) + "," + strconv.Itoa(strongChecksumLength)+ "\n" +
 		"URL: " + opts.url + "\n" +
 		"SHA-1: " + strFileChecksum + "\n\n"
 
@@ -91,13 +107,14 @@ func writeToFile(path string, options Options) ([]byte, string, string) {
 }
 
 func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, strongLen int, fileDigest hash.Hash, blockDigest hash.Hash) ([]byte, []byte) {
-	//a := fileLength / int64(blocksize)
-	//b := int64(0)
-	//if(fileLength % int64(blocksize) > 0) {
-	//	b = int64(1)
-	//}
+	a := fileLength / int64(blocksize)
+	b := int64(0)
+	if(fileLength % int64(blocksize) > 0) {
+		b = int64(1)
+	}
 
-	//capacity := (a + b) * int64(weakLen + strongLen) + int64(fileDigest.Size());
+	capacity := (a + b) * int64(weakLen + strongLen) + int64(fileDigest.Size());
+	println(capacity)
 
 	checksumBytes := make([]byte, 0)
 	block := make([]byte, blocksize)
@@ -106,6 +123,9 @@ func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, s
 	for {
 		read, err := f.Read(block)
 		if(err != nil) {
+			if(err == io.EOF) {
+				break
+			}
 			log.Fatal(err)
 		}
 
@@ -122,53 +142,31 @@ func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, s
 			for i := range blockSlice {
 				blockSlice[i] = byte(0)
 			}
-			break
+
 		} else {
 			wholeBlockFile = append(wholeBlockFile, block...)
 		}
 
 		rsum := computeRsum(block)
 
-		//signedWeakInts, unsignedWeakByte := intToByteArr(int32(rsum))
 		_, unsignedWeakByte := intToByteArr(int32(rsum))
 		strbase64(unsignedWeakByte)
 
-		//println(signedWeakInts)
-		//println("")
-		//strbase64(unsignedWeakByte)
-		//bs := new(bytes.Buffer)
-		//b := make([]byte, 4)
-		//binary.BigEndian.PutUint32(b, uint32(rsum))
-		//
-		//err = binary.Write(bs, binary.BigEndian, int32(rsum))
-		//if err != nil {
-		//	log.Fatal(err)
-		//}
-		//bytearr := bs.Bytes()
-		//println(bytearr)
-
-		//rsum32 := uint32(rsum)
-		//b := make([]byte, 4)
-		//binary.BigEndian.PutUint32(b, rsum32)
-		//binary.LittleEndian.PutUint32(b, uint32(rsum))
-		//varint := binary.PutVarint(b, int64(rsum))
-		//println(varint)
-
-		//tempUnsigned := unsignedWeakByte
-
-		checksumBytes = append(checksumBytes, unsignedWeakByte...)
+		tempUnsignedWeakByte := unsignedWeakByte[len(unsignedWeakByte) - weakLen:]
+		checksumBytes = append(checksumBytes, tempUnsignedWeakByte...)
 
 		blockDigest.Reset()
 		blockDigest.Write(block)
 		strongBytes := blockDigest.Sum(nil)
 		strbase64(strongBytes)
 
-		//signedInts, signedStrong := calculateSignedByte(strongBytes)
-		_, signedStrong := calculateSignedByte(strongBytes)
+		//signedInts, unsignedStrong := calculateSignedByte(strongBytes)
+		_, unsignedStrong := calculateSignedByte(strongBytes)
 
-		//print(signedInts, signedStrong)
+		//print(signedInts, unsignedStrong)
 
-		checksumBytes = append(checksumBytes, signedStrong...)
+		tempUnsignedStrongByte := unsignedStrong[:strongLen]
+		checksumBytes = append(checksumBytes, tempUnsignedStrongByte...)
 
 		//println("")
 
@@ -178,16 +176,21 @@ func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, s
 	//	log.Fatal(err)
 	//}
 
+	fileDigest.Reset()
 	fileDigest.Write(wholeBlockFile)
 	fileChecksum := fileDigest.Sum(nil)
-	strbase64(fileChecksum)
+
 	//signedFileChecksumInts, unsignedFileChecksumBytes := calculateSignedByte(fileChecksum)
 	_, unsignedFileChecksumBytes := calculateSignedByte(fileChecksum)
+
+	print("filechecksum sha1: ")
+	strbase64(unsignedFileChecksumBytes)
 
 	//println(signedFileChecksumInts, unsignedFileChecksumBytes)
 
 	// TODO change unsignedFileChecksumBytes to fileChecksum and remove calculateSignedByte, this case unnecesary
 	checksumBytes = append(checksumBytes, unsignedFileChecksumBytes...)
+
 
 	return checksumBytes, fileChecksum
 
