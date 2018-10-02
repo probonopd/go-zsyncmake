@@ -89,11 +89,29 @@ func writeToFile(path string, options zsyncOptions.Options) ([]byte, string, str
 
 }
 
+func sha1HashFile(path string, fileChecksumChannel chan []byte) {
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	hasher := sha1.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		log.Fatal(err)
+	}
+
+	fileChecksumChannel <- hasher.Sum(nil)
+}
+
 func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, strongLen int, fileDigest hash.Hash, blockDigest hash.Hash) ([]byte, []byte) {
 
 	checksumBytes := make([]byte, 0)
 	block := make([]byte, blocksize)
-	wholeBlockFile := make([]byte, 0)
+	//wholeBlockFile := make([]byte, 0)
+
+	fileChecksumChannel := make(chan []byte)
+	go sha1HashFile(f.Name(), fileChecksumChannel)
 
 	for {
 		read, err := f.Read(block)
@@ -106,9 +124,9 @@ func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, s
 
 		if read < blocksize {
 
-			for i := 0; i < read; i++ {
-				wholeBlockFile = append(wholeBlockFile, block[i])
-			}
+			//for i := 0; i < read; i++ {
+			//	wholeBlockFile = append(wholeBlockFile, block[i])
+			//}
 
 			blockSlice := block[read:blocksize]
 			for i := range blockSlice {
@@ -116,7 +134,7 @@ func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, s
 			}
 
 		} else {
-			wholeBlockFile = append(wholeBlockFile, block...)
+			//wholeBlockFile = append(wholeBlockFile, block...)
 		}
 
 		rsum := computeRsum(block)
@@ -136,9 +154,12 @@ func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, s
 
 	}
 
-	fileDigest.Reset()
-	fileDigest.Write(wholeBlockFile)
-	fileChecksum := fileDigest.Sum(nil)
+	//fileDigest.Reset()
+	//fileDigest.Write(wholeBlockFile)
+	//fileChecksum := fileDigest.Sum(nil)
+
+	fileChecksum := <- fileChecksumChannel
+
 
 	// TODO change unsignedFileChecksumBytes to fileChecksum and remove calculateSignedByte, this case unnecesary
 	checksumBytes = append(checksumBytes, fileChecksum...)
