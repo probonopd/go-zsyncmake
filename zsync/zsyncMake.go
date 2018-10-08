@@ -5,8 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
-	"goZsyncmake/md4"
-	"goZsyncmake/zsyncOptions"
+	"golang.org/x/crypto/md4"
 	"hash"
 	"io"
 	"log"
@@ -20,8 +19,14 @@ var ZSYNC_VERSION = "0.6.2"
 var BLOCK_SIZE_SMALL = 2048
 var BLOCK_SIZE_LARGE = 4096
 
+type Options struct {
+	BlockSize int
+	Filename  string
+	Url       string
+}
+
 // ZsyncMake zsync make
-func ZsyncMake(path string, options zsyncOptions.Options) {
+func ZsyncMake(path string, options Options) {
 	checksum, headers, zsyncFilePath := writeToFile(path, options)
 	zsyncFile, err := os.Create(zsyncFilePath)
 	if err != nil {
@@ -43,7 +48,7 @@ func ZsyncMake(path string, options zsyncOptions.Options) {
 	bfio.Flush()
 }
 
-func writeToFile(path string, options zsyncOptions.Options) ([]byte, string, string) {
+func writeToFile(path string, options Options) ([]byte, string, string) {
 	file, err := os.Open(path)
 	if err != nil {
 		log.Fatal(err)
@@ -71,7 +76,7 @@ func writeToFile(path string, options zsyncOptions.Options) ([]byte, string, str
 	strongChecksumLength := strongChecksumLength(fileLength, blockSize, sequenceMatches)
 
 	fileDigest := sha1.New()
-	blockDigest := md4.New() // should be imported from golib, I do quick hack by localize it
+	blockDigest := md4.New()
 
 	checksum, fileChecksum := computeChecksum(file, blockSize, fileLength, weakChecksumLength, strongChecksumLength, fileDigest, blockDigest)
 	strFileChecksum := hex.EncodeToString(fileChecksum)
@@ -108,7 +113,6 @@ func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, s
 
 	checksumBytes := make([]byte, 0)
 	block := make([]byte, blocksize)
-	//wholeBlockFile := make([]byte, 0)
 
 	fileChecksumChannel := make(chan []byte)
 	go sha1HashFile(f.Name(), fileChecksumChannel)
@@ -124,17 +128,11 @@ func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, s
 
 		if read < blocksize {
 
-			//for i := 0; i < read; i++ {
-			//	wholeBlockFile = append(wholeBlockFile, block[i])
-			//}
-
 			blockSlice := block[read:blocksize]
 			for i := range blockSlice {
 				blockSlice[i] = byte(0)
 			}
 
-		} else {
-			//wholeBlockFile = append(wholeBlockFile, block...)
 		}
 
 		rsum := computeRsum(block)
@@ -154,14 +152,8 @@ func computeChecksum(f *os.File, blocksize int, fileLength int64, weakLen int, s
 
 	}
 
-	//fileDigest.Reset()
-	//fileDigest.Write(wholeBlockFile)
-	//fileChecksum := fileDigest.Sum(nil)
-
 	fileChecksum := <- fileChecksumChannel
 
-
-	// TODO change unsignedFileChecksumBytes to fileChecksum and remove calculateSignedByte, this case unnecesary
 	checksumBytes = append(checksumBytes, fileChecksum...)
 
 	return checksumBytes, fileChecksum
@@ -226,7 +218,7 @@ func unsign(b byte) uint8 {
 	}
 }
 
-func calculateMissingValues(opts zsyncOptions.Options, f *os.File) zsyncOptions.Options {
+func calculateMissingValues(opts Options, f *os.File) Options {
 	if opts.BlockSize == 0 {
 		opts.BlockSize = calculateDefaultBlockSizeForInputFile(f)
 	}
